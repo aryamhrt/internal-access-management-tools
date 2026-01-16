@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <title>CORS Test</title>
+  </head>
+  <body>
+    <h1>Testing Google Apps Script CORS</h1>
+    <button onclick="testDashboard()">Test Dashboard Endpoint</button>
+    <button onclick="testApplications()">Test Applications Endpoint</button>
+    <div id="results"></div>
+
+    <script>
+      const baseUrl =
+        "https://script.google.com/macros/s/AKfycby2Ba8DhSHrubh8gjlijGaDxtqgmxKVigxr1df8RRlWAa02-5p7_E4EKNassyvBeJSb/exec";
+
+      async function testEndpoint(endpoint) {
+        const results = document.getElementById("results");
+        results.innerHTML += `<h3>Testing ${endpoint}...</h3>`;
+
+        try {
+          const response = await fetch(`${baseUrl}?path=${endpoint}`);
+          const text = await response.text();
+          results.innerHTML += `<p>✅ ${endpoint}: ${response.status} - ${text.substring(0, 100)}...</p>`;
+        } catch (error) {
+          results.innerHTML += `<p>❌ ${endpoint}: ${error.message}</p>`;
+        }
+      }
+
+      function testDashboard() {
+        testEndpoint("dashboard");
+      }
+
+      function testApplications() {
+        testEndpoint("applications");
+      }
+    </script>
+  </body>
+</html>
