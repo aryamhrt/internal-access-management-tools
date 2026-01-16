@@ -297,8 +297,12 @@ export const notionBackend = {
         );
         console.log(
           "🔑 API Key configured:",
-          ENV.NOTION_API_KEY ? "Yes" : "No",
+          ENV.NOTION_API_KEY
+            ? "Yes"
+            : "No (" + (ENV.NOTION_API_KEY ? "masked" : "missing") + ")",
         );
+        console.log("🌐 Environment check - Backend Type:", ENV.BACKEND_TYPE);
+        console.log("🌐 Environment check - Environment:", ENV.ENVIRONMENT);
 
         const allUsersResponse = await notion.queryDatabase(
           ENV.NOTION_DATABASES.USERS,
