@@ -134,14 +134,14 @@ dist
 
 Add these environment variables (they will override `.env` files):
 
-| Variable Name                 | Value                                                    | Description                   |
-| ----------------------------- | -------------------------------------------------------- | ----------------------------- |
-| `NODE_VERSION`                | `18`                                                     | Node.js version               |
-| `VITE_BACKEND_TYPE`           | `appscript`                                              | or `notion`                   |
-| `VITE_API_BASE_URL`           | `https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec` | Your Apps Script URL          |
-| `VITE_GOOGLE_CLIENT_ID`       | `your_google_client_id`                                  | Google OAuth client ID        |
-| `VITE_ALLOWED_DOMAIN`         | `yourdomain.com`                                         | Domain restriction            |
-| `VITE_MATTERMOST_WEBHOOK_URL` | `https://mattermost.com/hooks/...`                       | Mattermost webhook (optional) |
+| Variable Name                 | Value                                                    | Description                                           |
+| ----------------------------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| `NODE_VERSION`                | `20`                                                     | Node.js version (Vercel: use 20+ for new deployments) |
+| `VITE_BACKEND_TYPE`           | `appscript`                                              | or `notion`                                           |
+| `VITE_API_BASE_URL`           | `https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec` | Your Apps Script URL                                  |
+| `VITE_GOOGLE_CLIENT_ID`       | `your_google_client_id`                                  | Google OAuth client ID                                |
+| `VITE_ALLOWED_DOMAIN`         | `yourdomain.com`                                         | Domain restriction                                    |
+| `VITE_MATTERMOST_WEBHOOK_URL` | `https://mattermost.com/hooks/...`                       | Mattermost webhook (optional)                         |
 
 ### Step 3: Environment Variables for Notion Backend (if using)
 
@@ -305,6 +305,41 @@ git push origin main
 1. Go to Cloudflare Pages → Deployments
 2. Find the previous deployment
 3. Click **Restore**
+
+## 🚀 Vercel Deployment Notes
+
+### Node.js Version Requirements
+
+**Important:** Vercel no longer supports Node.js 18 for new deployments as of September 1, 2025.
+
+- ✅ **Node.js 20** - Recommended for new deployments
+- ✅ **Node.js 22** - Latest LTS version
+- ❌ **Node.js 18** - Deprecated for new deployments
+
+### Vercel Environment Variables
+
+When deploying to Vercel, ensure you set:
+
+```bash
+NODE_VERSION=20
+```
+
+Or simply add to your `package.json`:
+
+```json
+{
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+```
+
+### Vercel Build Configuration
+
+- **Framework Preset**: `Vite`
+- **Root Directory**: `./`
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
 
 ## 🌍 Custom Domain (Optional)
 
