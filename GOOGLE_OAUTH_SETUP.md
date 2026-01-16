@@ -45,8 +45,8 @@ After creating the OAuth client, copy the **Client ID** (not Client Secret):
 ## Step 5: Update Your .env File
 
 ```env
-VITE_GOOGLE_CLIENT_ID=871426160424-er26rhqjk9d88jmvt24mubvibfh87961.apps.googleusercontent.com
-VITE_ALLOWED_DOMAIN=djoin.id
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id_here
+VITE_ALLOWED_DOMAIN=yourdomain.com
 ```
 
 ## Step 6: Test the Configuration
