@@ -115,9 +115,15 @@ function decodeJwtPayload(token: string): any {
     // Decode and parse
     const decoded = atob(payload);
     return JSON.parse(decoded);
-  } catch (error) {
-    console.error("Failed to decode JWT:", error);
-    throw new Error("Invalid JWT token");
+  } catch (error: any) {
+    console.log("❌ Database query failed:", error);
+    console.log("❌ Error details:", {
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      body: error.body,
+    });
+    throw new Error(`Failed to query users database: ${error}`);
   }
 }
 
@@ -276,6 +282,35 @@ function accessRegistryToNotion(registry: Partial<AccessRegistry>): any {
   };
 }
 
+// Debug utility for testing Notion connection
+export const testNotionConnection = async () => {
+  console.log("🧪 Testing Notion Connection...");
+  console.log("🔑 API Key:", ENV.NOTION_API_KEY ? "Set (masked)" : "NOT SET");
+  console.log("👥 Users DB:", ENV.NOTION_DATABASES.USERS);
+  console.log("🏢 Apps DB:", ENV.NOTION_DATABASES.APPLICATIONS);
+  console.log("📋 Requests DB:", ENV.NOTION_DATABASES.ACCESS_REQUESTS);
+  console.log("📊 Registry DB:", ENV.NOTION_DATABASES.ACCESS_REGISTRY);
+
+  try {
+    console.log("🔍 Testing Users database access...");
+    const response = await notion.queryDatabase(ENV.NOTION_DATABASES.USERS);
+    console.log(
+      "✅ Users database accessible, found",
+      response.results.length,
+      "items",
+    );
+    return { success: true, data: response };
+  } catch (error: any) {
+    console.log("❌ Users database access failed:", error);
+    return { success: false, error };
+  }
+};
+
+// Make it available globally for debugging
+if (typeof window !== "undefined") {
+  (window as any).testNotionConnection = testNotionConnection;
+}
+
 // API implementations
 export const notionBackend = {
   auth: {
@@ -298,6 +333,11 @@ export const notionBackend = {
         console.log(
           "🔑 API Key configured:",
           ENV.NOTION_API_KEY ? "Yes" : "No",
+        );
+
+        console.log(
+          "🔍 Attempting to query database:",
+          ENV.NOTION_DATABASES.USERS,
         );
 
         const allUsersResponse = await notion.queryDatabase(
