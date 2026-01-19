@@ -703,7 +703,7 @@ export const notionBackend = {
     reject: async (
       id: string,
       notes?: string,
-      rejectedBy?: string,
+      _rejectedBy?: string, // Prefix with _ to indicate intentionally unused
     ): Promise<ApiResponse<AccessRequest>> => {
       try {
         const properties: any = {
