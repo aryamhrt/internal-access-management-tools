@@ -10,7 +10,7 @@ import type {
 } from "@/types";
 
 class NotionAPI {
-  private baseUrl = "/api/notion";
+  private baseUrl = "https://api.notion.com/v1"; // Always use direct API calls
   private version = "2022-06-28"; // Using stable version
 
   private async request(
