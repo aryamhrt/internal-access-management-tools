@@ -1,4 +1,4 @@
-// Notion API backend implementation
+// Notion Backend Implementation using Vercel API routes
 import { ENV } from "@/lib/constants";
 import type {
   User,
@@ -6,128 +6,118 @@ import type {
   AccessRequest,
   AccessRegistry,
   ApiResponse,
-  UserRole,
 } from "@/types";
 
 class NotionAPI {
-  private baseUrl = "https://api.notion.com/v1"; // Always use direct API calls
-  private version = "2022-06-28"; // Using stable version
-
-  private async request(
-    endpoint: string,
-    options: RequestInit = {},
-  ): Promise<any> {
-    const url = `${this.baseUrl}${endpoint}`;
-
-    console.log(`🌐 Notion API Request: ${options.method || "GET"} ${url}`);
+  async queryDatabase(databaseId: string, filter?: any): Promise<any> {
+    const url = `/api/notion/databases/${databaseId}/query`;
+    console.log(`🌐 Vercel API Request: POST ${url}`);
 
     const response = await fetch(url, {
-      ...options,
+      method: "POST",
       headers: {
-        Authorization: `Bearer ${ENV.NOTION_API_KEY}`,
-        "Notion-Version": this.version,
         "Content-Type": "application/json",
-        ...options.headers,
       },
+      body: JSON.stringify({ databaseId, ...(filter || {}) }),
     });
-
-    console.log(
-      `📡 Notion API Response: ${response.status} ${response.statusText}`,
-    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ Notion API Error Details:`, errorText);
-      throw new Error(
-        `Notion API error: ${response.status} ${response.statusText} - ${errorText}`,
-      );
+      console.error(`❌ Vercel API Error:`, errorText);
+      throw new Error(`Vercel API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    console.log(`✅ Notion API Success:`, data);
+    console.log(`✅ Vercel API Success:`, data);
     return data;
   }
 
-  // Format database ID (ensure no hyphens for Notion API)
-  private formatDatabaseId(id: string): string {
-    return id.replace(/-/g, "");
-  }
-
-  async queryDatabase(databaseId: string, filter?: any): Promise<any> {
-    const formattedId = this.formatDatabaseId(databaseId);
-    const body: any = {};
-    if (filter) {
-      body.filter = filter;
-    }
-
-    console.log(
-      `🔍 Querying database: ${databaseId} (formatted: ${formattedId})`,
-    );
-
-    return this.request(`/databases/${formattedId}/query`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-  }
-
   async createPage(databaseId: string, properties: any): Promise<any> {
-    const formattedId = this.formatDatabaseId(databaseId);
-    return this.request("/pages", {
+    const url = `/api/notion/pages`;
+    console.log(`🌐 Vercel API Request: POST ${url}`);
+
+    const response = await fetch(url, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        parent: { database_id: formattedId },
+        parent: { database_id: databaseId },
         properties,
       }),
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Vercel API Error:`, errorText);
+      throw new Error(`Vercel API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log(`✅ Vercel API Success:`, data);
+    return data;
   }
 
   async updatePage(pageId: string, properties: any): Promise<any> {
-    return this.request(`/pages/${pageId}`, {
+    const url = `/api/notion/pages/${pageId}`;
+    console.log(`🌐 Vercel API Request: PATCH ${url}`);
+
+    const response = await fetch(url, {
       method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ properties }),
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Vercel API Error:`, errorText);
+      throw new Error(`Vercel API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log(`✅ Vercel API Success:`, data);
+    return data;
   }
 
   async getPage(pageId: string): Promise<any> {
-    return this.request(`/pages/${pageId}`);
+    const url = `/api/notion/pages?pageId=${pageId}`;
+    console.log(`🌐 Vercel API Request: GET ${url}`);
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Vercel API Error:`, errorText);
+      throw new Error(`Vercel API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log(`✅ Vercel API Success:`, data);
+    return data;
   }
 }
 
 const notion = new NotionAPI();
 
-// Helper function to decode JWT payload (client-side decoding is safe)
+// Helper functions
 function decodeJwtPayload(token: string): any {
   try {
-    const parts = token.split(".");
-    if (parts.length !== 3) {
-      throw new Error("Invalid JWT format");
-    }
-
-    // Decode the payload (base64url to base64)
-    let payload = parts[1];
-    payload = payload.replace(/-/g, "+").replace(/_/g, "/");
-
-    // Add padding
-    while (payload.length % 4) {
-      payload += "=";
-    }
-
-    // Decode and parse
-    const decoded = atob(payload);
+    const payload = token.split(".")[1];
+    const decoded = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
     return JSON.parse(decoded);
-  } catch (error: any) {
-    console.log("❌ Database query failed:", error);
-    console.log("❌ Error details:", {
-      message: error.message,
-      status: error.status,
-      code: error.code,
-      body: error.body,
-    });
-    throw new Error(`Failed to query users database: ${error}`);
+  } catch (error) {
+    console.error("Failed to decode JWT:", error);
+    throw new Error("Invalid JWT token");
   }
 }
 
-// Helper functions to convert Notion data to our format
 function notionToUser(page: any): User {
   const props = page.properties;
   return {
@@ -143,28 +133,6 @@ function notionToUser(page: any): User {
   };
 }
 
-function userToNotion(user: Partial<User>): any {
-  return {
-    Name: {
-      title: [{ text: { content: user.name || "" } }],
-    },
-    Email: {
-      email: user.email || "",
-    },
-    Role: { select: { name: user.role || "employee" } },
-    Status: { select: { name: user.status || "active" } },
-    "Join Date": user.join_date
-      ? { date: { start: user.join_date } }
-      : { date: { start: new Date().toISOString() } },
-    "Offboard Date": user.offboard_date
-      ? { date: { start: user.offboard_date } }
-      : undefined,
-    "Invited By": user.invited_by
-      ? { rich_text: [{ text: { content: user.invited_by } }] }
-      : undefined,
-  };
-}
-
 function notionToApplication(page: any): Application {
   const props = page.properties;
   return {
@@ -176,24 +144,6 @@ function notionToApplication(page: any): Application {
       props["Admin Emails"]?.multi_select?.map((item: any) => item.name) || [],
     created_at: page.created_time,
     created_by: props["Created By"]?.rich_text?.[0]?.plain_text || "",
-  };
-}
-
-function applicationToNotion(app: Application): any {
-  return {
-    Name: {
-      title: [{ text: { content: app.name } }],
-    },
-    Category: { select: { name: app.category } },
-    Description: {
-      rich_text: [{ text: { content: app.description || "" } }],
-    },
-    "Admin Emails": {
-      multi_select: (app.admin_emails || []).map((email) => ({ name: email })),
-    },
-    "Created By": {
-      rich_text: [{ text: { content: app.created_by } }],
-    },
   };
 }
 
@@ -228,87 +178,44 @@ function notionToAccessRegistry(page: any): AccessRegistry {
   };
 }
 
-// Helper functions to convert our data to Notion format
-function accessRequestToNotion(request: Partial<AccessRequest>): any {
+function userToNotion(user: Partial<User>): any {
   return {
-    "Employee ID": {
-      rich_text: [{ text: { content: request.employee_id || "" } }],
+    Name: {
+      title: [{ text: { content: user.name || "" } }],
     },
-    "Application ID": {
-      rich_text: [{ text: { content: request.application_id || "" } }],
+    Email: {
+      email: user.email || "",
     },
-    Type: { select: { name: request.type || "new" } },
-    Status: { select: { name: request.status || "pending" } },
-    "Request Date": {
-      date: { start: request.request_date || new Date().toISOString() },
-    },
-    "Approved Date": request.approved_date
-      ? { date: { start: request.approved_date } }
+    Role: { select: { name: user.role || "employee" } },
+    Status: { select: { name: user.status || "active" } },
+    "Join Date": user.join_date
+      ? { date: { start: user.join_date } }
+      : { date: { start: new Date().toISOString() } },
+    "Offboard Date": user.offboard_date
+      ? { date: { start: user.offboard_date } }
       : undefined,
-    "Approved By": request.approved_by
-      ? { rich_text: [{ text: { content: request.approved_by } }] }
-      : undefined,
-    "Admin Notes": request.admin_notes
-      ? { rich_text: [{ text: { content: request.admin_notes } }] }
-      : undefined,
-    Justification: {
-      rich_text: [{ text: { content: request.justification || "" } }],
-    },
-    "Auto Generated": { checkbox: request.auto_generated || false },
-  };
-}
-
-function accessRegistryToNotion(registry: Partial<AccessRegistry>): any {
-  return {
-    "Employee ID": {
-      rich_text: [{ text: { content: registry.employee_id || "" } }],
-    },
-    "Application ID": {
-      rich_text: [{ text: { content: registry.application_id || "" } }],
-    },
-    "Granted Date": {
-      date: { start: registry.granted_date || new Date().toISOString() },
-    },
-    "Granted By": registry.granted_by
-      ? { rich_text: [{ text: { content: registry.granted_by } }] }
-      : undefined,
-    Status: { select: { name: registry.status || "active" } },
-    "Revoked Date": registry.revoked_date
-      ? { date: { start: registry.revoked_date } }
-      : undefined,
-    "Revoked By": registry.revoked_by
-      ? { rich_text: [{ text: { content: registry.revoked_by } }] }
+    "Invited By": user.invited_by
+      ? { rich_text: [{ text: { content: user.invited_by } }] }
       : undefined,
   };
 }
 
-// Debug utility for testing Notion connection
-export const testNotionConnection = async () => {
-  console.log("🧪 Testing Notion Connection...");
-  console.log("🔑 API Key:", ENV.NOTION_API_KEY ? "Set (masked)" : "NOT SET");
-  console.log("👥 Users DB:", ENV.NOTION_DATABASES.USERS);
-  console.log("🏢 Apps DB:", ENV.NOTION_DATABASES.APPLICATIONS);
-  console.log("📋 Requests DB:", ENV.NOTION_DATABASES.ACCESS_REQUESTS);
-  console.log("📊 Registry DB:", ENV.NOTION_DATABASES.ACCESS_REGISTRY);
-
-  try {
-    console.log("🔍 Testing Users database access...");
-    const response = await notion.queryDatabase(ENV.NOTION_DATABASES.USERS);
-    console.log(
-      "✅ Users database accessible, found",
-      response.results.length,
-      "items",
-    );
-    return { success: true, data: response };
-  } catch (error: any) {
-    console.log("❌ Users database access failed:", error);
-    return { success: false, error };
-  }
-};
-
-// Make it available globally for debugging
-if (typeof window !== "undefined") {
-  (window as any).testNotionConnection = testNotionConnection;
+function applicationToNotion(app: Application): any {
+  return {
+    Name: {
+      title: [{ text: { content: app.name } }],
+    },
+    Category: { select: { name: app.category } },
+    Description: {
+      rich_text: [{ text: { content: app.description || "" } }],
+    },
+    "Admin Emails": {
+      multi_select: (app.admin_emails || []).map((email) => ({ name: email })),
+    },
+    "Created By": {
+      rich_text: [{ text: { content: app.created_by } }],
+    },
+  };
 }
 
 // API implementations
@@ -318,25 +225,16 @@ export const notionBackend = {
       credential: string,
     ): Promise<ApiResponse<{ user: User; token: string }>> => {
       try {
-        // Decode JWT to get user info (safe client-side operation)
+        // Decode JWT to get user info
         const payload = decodeJwtPayload(credential);
         console.log("Decoded Google user:", {
           email: payload.email,
           name: payload.name,
         });
 
-        // Get all users first to debug
+        // Get all users
         console.log(
           "🔍 Testing database access, Database ID:",
-          ENV.NOTION_DATABASES.USERS,
-        );
-        console.log(
-          "🔑 API Key configured:",
-          ENV.NOTION_API_KEY ? "Yes" : "No",
-        );
-
-        console.log(
-          "🔍 Attempting to query database:",
           ENV.NOTION_DATABASES.USERS,
         );
 
@@ -349,83 +247,83 @@ export const notionBackend = {
           "total users",
         );
 
-        // Show first few users for debugging
-        console.log("First few users in database:");
-        allUsersResponse.results
-          .slice(0, 3)
-          .forEach((result: any, index: number) => {
-            const user = notionToUser(result);
-            console.log(
-              `${index + 1}. ${user.email} (${user.name}) - ${user.status}`,
-            );
-          });
+        // Find user by email
+        const userPage = allUsersResponse.results.find((page: any) => {
+          const props = page.properties;
+          return props.Email?.email === payload.email;
+        });
 
-        // Find user by email (case-insensitive manual filter to be safe)
-        const users = allUsersResponse.results
-          .map(notionToUser)
-          .filter(
-            (user: User) =>
-              user.email.toLowerCase() === payload.email.toLowerCase(),
-          );
-
-        console.log(
-          "Filtered users for email",
-          payload.email,
-          ":",
-          users.length,
-        );
-
-        if (users.length === 0) {
+        if (!userPage) {
+          console.log("❌ User not found in database");
           return {
             success: false,
             error: {
               code: "USER_NOT_FOUND",
-              message: `Your email address (${payload.email}) is not found in the user database. Please contact your administrator to be added.`,
+              message: "User not found in database",
             },
             timestamp: new Date().toISOString(),
-            request_id: `notion_auth_${Date.now()}`,
+            request_id: `auth_${Date.now()}`,
           };
         }
 
-        const user = users[0];
-        console.log("Found matching user:", {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          status: user.status,
-        });
+        const user = notionToUser(userPage);
+        console.log("✅ Authentication successful for user:", user.email);
 
-        // Check if user is active
-        if (user.status !== "active") {
-          return {
-            success: false,
-            error: {
-              code: "USER_INACTIVE",
-              message:
-                "Your account is not active. Please contact your administrator.",
-            },
-            timestamp: new Date().toISOString(),
-            request_id: `notion_auth_${Date.now()}`,
-          };
-        }
-
-        // Return user data
-        const token = `notion_${Date.now()}_${user.id}`;
-        console.log("Authentication successful for user:", user.email);
         return {
           success: true,
-          data: { user, token },
+          data: { user, token: credential },
           timestamp: new Date().toISOString(),
-          request_id: `notion_auth_success_${user.id}`,
+          request_id: `auth_${Date.now()}`,
         };
-      } catch (error) {
-        console.error("Notion Google login error:", error);
+      } catch (error: any) {
+        console.error("❌ Authentication failed:", error);
         return {
           success: false,
-          error: { code: "AUTH_ERROR", message: (error as Error).message },
+          error: { code: "AUTH_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_auth_error_${Date.now()}`,
+          request_id: `auth_error_${Date.now()}`,
+        };
+      }
+    },
+  },
+
+  dashboard: {
+    getStats: async (): Promise<ApiResponse<any>> => {
+      try {
+        const [usersRes, appsRes, requestsRes, registryRes] = await Promise.all(
+          [
+            notion.queryDatabase(ENV.NOTION_DATABASES.USERS),
+            notion.queryDatabase(ENV.NOTION_DATABASES.APPLICATIONS),
+            notion.queryDatabase(ENV.NOTION_DATABASES.ACCESS_REQUESTS),
+            notion.queryDatabase(ENV.NOTION_DATABASES.ACCESS_REGISTRY),
+          ],
+        );
+
+        return {
+          success: true,
+          data: {
+            total_users: usersRes.results.length,
+            total_applications: appsRes.results.length,
+            pending_requests: requestsRes.results.filter(
+              (r: any) => r.properties.Status?.select?.name === "pending",
+            ).length,
+            active_access: registryRes.results.filter(
+              (r: any) => r.properties.Status?.select?.name === "active",
+            ).length,
+            recent_requests: requestsRes.results
+              .slice(0, 10)
+              .map(notionToAccessRequest),
+            notifications: [],
+          },
+          timestamp: new Date().toISOString(),
+          request_id: `dashboard_${Date.now()}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: { code: "DASHBOARD_ERROR", message: error.message },
+          timestamp: new Date().toISOString(),
+          request_id: `dashboard_error_${Date.now()}`,
         };
       }
     },
@@ -442,14 +340,14 @@ export const notionBackend = {
           success: true,
           data: applications,
           timestamp: new Date().toISOString(),
-          request_id: `notion_apps_${Date.now()}`,
+          request_id: `apps_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_apps_error_${Date.now()}`,
+          request_id: `apps_error_${Date.now()}`,
         };
       }
     },
@@ -462,14 +360,14 @@ export const notionBackend = {
           success: true,
           data: application,
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_${id}`,
+          request_id: `app_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_error_${id}`,
+          request_id: `app_error_${id}`,
         };
       }
     },
@@ -482,7 +380,7 @@ export const notionBackend = {
     }): Promise<ApiResponse<Application>> => {
       try {
         const properties = applicationToNotion({
-          id: "", // Will be set by Notion
+          id: "",
           name: data.name,
           category: data.category,
           description: data.description || "",
@@ -500,14 +398,14 @@ export const notionBackend = {
           success: true,
           data: application,
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_create_${Date.now()}`,
+          request_id: `app_create_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_create_error_${Date.now()}`,
+          request_id: `app_create_error_${Date.now()}`,
         };
       }
     },
@@ -520,7 +418,6 @@ export const notionBackend = {
       admin_emails?: string;
     }): Promise<ApiResponse<Application>> => {
       try {
-        // First get the current application
         const currentResponse = await notion.getPage(data.id);
         const currentApp = notionToApplication(currentResponse);
 
@@ -540,34 +437,33 @@ export const notionBackend = {
           success: true,
           data: application,
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_update_${data.id}`,
+          request_id: `app_update_${data.id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_update_error_${data.id}`,
+          request_id: `app_update_error_${data.id}`,
         };
       }
     },
 
     delete: async (id: string): Promise<ApiResponse<{ success: boolean }>> => {
       try {
-        // In Notion, deletion is done by archiving the page
         await notion.updatePage(id, { archived: true });
         return {
           success: true,
           data: { success: true },
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_delete_${id}`,
+          request_id: `app_delete_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_app_delete_error_${id}`,
+          request_id: `app_delete_error_${id}`,
         };
       }
     },
@@ -582,14 +478,14 @@ export const notionBackend = {
           success: true,
           data: users,
           timestamp: new Date().toISOString(),
-          request_id: `notion_users_${Date.now()}`,
+          request_id: `users_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_users_error_${Date.now()}`,
+          request_id: `users_error_${Date.now()}`,
         };
       }
     },
@@ -602,14 +498,14 @@ export const notionBackend = {
           success: true,
           data: user,
           timestamp: new Date().toISOString(),
-          request_id: `notion_user_${id}`,
+          request_id: `user_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_user_error_${id}`,
+          request_id: `user_error_${id}`,
         };
       }
     },
@@ -621,10 +517,10 @@ export const notionBackend = {
     }): Promise<ApiResponse<User>> => {
       try {
         const properties = userToNotion({
-          id: "", // Will be set by Notion
+          id: "",
           name: data.name,
           email: data.email,
-          role: data.role as UserRole,
+          role: data.role as any,
           status: "active",
           join_date: new Date().toISOString(),
           created_at: new Date().toISOString(),
@@ -639,14 +535,14 @@ export const notionBackend = {
           success: true,
           data: user,
           timestamp: new Date().toISOString(),
-          request_id: `notion_user_create_${Date.now()}`,
+          request_id: `user_create_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_user_create_error_${Date.now()}`,
+          request_id: `user_create_error_${Date.now()}`,
         };
       }
     },
@@ -690,14 +586,14 @@ export const notionBackend = {
           success: true,
           data: requests,
           timestamp: new Date().toISOString(),
-          request_id: `notion_requests_${Date.now()}`,
+          request_id: `requests_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_requests_error_${Date.now()}`,
+          request_id: `requests_error_${Date.now()}`,
         };
       }
     },
@@ -710,21 +606,38 @@ export const notionBackend = {
           success: true,
           data: request,
           timestamp: new Date().toISOString(),
-          request_id: `notion_request_${id}`,
+          request_id: `request_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_request_error_${id}`,
+          request_id: `request_error_${id}`,
         };
       }
     },
 
     create: async (data: any): Promise<ApiResponse<AccessRequest>> => {
       try {
-        const properties = accessRequestToNotion(data);
+        const properties = {
+          "Employee ID": {
+            rich_text: [{ text: { content: data.employee_id || "" } }],
+          },
+          "Application ID": {
+            rich_text: [{ text: { content: data.application_id || "" } }],
+          },
+          Type: { select: { name: data.type || "new" } },
+          Status: { select: { name: "pending" } },
+          "Request Date": {
+            date: { start: new Date().toISOString() },
+          },
+          Justification: {
+            rich_text: [{ text: { content: data.justification || "" } }],
+          },
+          "Auto Generated": { checkbox: false },
+        };
+
         const response = await notion.createPage(
           ENV.NOTION_DATABASES.ACCESS_REQUESTS,
           properties,
@@ -734,14 +647,14 @@ export const notionBackend = {
           success: true,
           data: request,
           timestamp: new Date().toISOString(),
-          request_id: `notion_create_request_${response.id}`,
+          request_id: `request_create_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_create_request_error_${Date.now()}`,
+          request_id: `request_create_error_${Date.now()}`,
         };
       }
     },
@@ -775,14 +688,14 @@ export const notionBackend = {
           success: true,
           data: request,
           timestamp: new Date().toISOString(),
-          request_id: `notion_approve_${id}`,
+          request_id: `approve_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_approve_error_${id}`,
+          request_id: `approve_error_${id}`,
         };
       }
     },
@@ -797,12 +710,6 @@ export const notionBackend = {
           Status: { select: { name: "rejected" } },
         };
 
-        if (rejectedBy) {
-          properties["Approved By"] = {
-            rich_text: [{ text: { content: rejectedBy } }],
-          };
-        }
-
         if (notes) {
           properties["Admin Notes"] = {
             rich_text: [{ text: { content: notes } }],
@@ -815,14 +722,14 @@ export const notionBackend = {
           success: true,
           data: request,
           timestamp: new Date().toISOString(),
-          request_id: `notion_reject_${id}`,
+          request_id: `reject_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_reject_error_${id}`,
+          request_id: `reject_error_${id}`,
         };
       }
     },
@@ -830,18 +737,11 @@ export const notionBackend = {
     revoke: async (
       id: string,
       notes?: string,
-      revokedBy?: string,
     ): Promise<ApiResponse<AccessRequest>> => {
       try {
         const properties: any = {
           Status: { select: { name: "revoked" } },
         };
-
-        if (revokedBy) {
-          properties["Approved By"] = {
-            rich_text: [{ text: { content: revokedBy } }],
-          };
-        }
 
         if (notes) {
           properties["Admin Notes"] = {
@@ -855,14 +755,14 @@ export const notionBackend = {
           success: true,
           data: request,
           timestamp: new Date().toISOString(),
-          request_id: `notion_revoke_${id}`,
+          request_id: `revoke_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_revoke_error_${id}`,
+          request_id: `revoke_error_${id}`,
         };
       }
     },
@@ -906,14 +806,14 @@ export const notionBackend = {
           success: true,
           data: registry,
           timestamp: new Date().toISOString(),
-          request_id: `notion_registry_${Date.now()}`,
+          request_id: `registry_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_registry_error_${Date.now()}`,
+          request_id: `registry_error_${Date.now()}`,
         };
       }
     },
@@ -940,14 +840,14 @@ export const notionBackend = {
           success: true,
           data: registry,
           timestamp: new Date().toISOString(),
-          request_id: `notion_revoke_registry_${id}`,
+          request_id: `revoke_registry_${id}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_revoke_registry_error_${id}`,
+          request_id: `revoke_registry_error_${id}`,
         };
       }
     },
@@ -958,14 +858,21 @@ export const notionBackend = {
       granted_by?: string;
     }): Promise<ApiResponse<AccessRegistry>> => {
       try {
-        const properties = accessRegistryToNotion({
-          id: "", // Will be set by Notion
-          employee_id: data.employee_id,
-          application_id: data.application_id,
-          granted_date: new Date().toISOString(),
-          granted_by: data.granted_by,
-          status: "active",
-        });
+        const properties = {
+          "Employee ID": {
+            rich_text: [{ text: { content: data.employee_id } }],
+          },
+          "Application ID": {
+            rich_text: [{ text: { content: data.application_id } }],
+          },
+          "Granted Date": {
+            date: { start: new Date().toISOString() },
+          },
+          "Granted By": data.granted_by
+            ? { rich_text: [{ text: { content: data.granted_by } }] }
+            : undefined,
+          Status: { select: { name: "active" } },
+        };
 
         const response = await notion.createPage(
           ENV.NOTION_DATABASES.ACCESS_REGISTRY,
@@ -976,61 +883,45 @@ export const notionBackend = {
           success: true,
           data: registry,
           timestamp: new Date().toISOString(),
-          request_id: `notion_registry_create_${Date.now()}`,
+          request_id: `registry_create_${Date.now()}`,
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
+          error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
-          request_id: `notion_registry_create_error_${Date.now()}`,
-        };
-      }
-    },
-  },
-
-  dashboard: {
-    getStats: async (): Promise<ApiResponse<any>> => {
-      try {
-        // Get stats from all databases
-        const [usersRes, appsRes, requestsRes, registryRes] = await Promise.all(
-          [
-            notion.queryDatabase(ENV.NOTION_DATABASES.USERS),
-            notion.queryDatabase(ENV.NOTION_DATABASES.APPLICATIONS),
-            notion.queryDatabase(ENV.NOTION_DATABASES.ACCESS_REQUESTS),
-            notion.queryDatabase(ENV.NOTION_DATABASES.ACCESS_REGISTRY),
-          ],
-        );
-
-        const stats = {
-          total_users: usersRes.results.length,
-          total_applications: appsRes.results.length,
-          pending_requests: requestsRes.results.filter(
-            (r: any) => r.properties.Status?.select?.name === "pending",
-          ).length,
-          active_access: registryRes.results.filter(
-            (r: any) => r.properties.Status?.select?.name === "active",
-          ).length,
-          recent_requests: requestsRes.results
-            .slice(0, 5)
-            .map(notionToAccessRequest),
-          notifications: [], // Notion doesn't have notifications yet
-        };
-
-        return {
-          success: true,
-          data: stats,
-          timestamp: new Date().toISOString(),
-          request_id: `notion_dashboard_${Date.now()}`,
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: { code: "NOTION_ERROR", message: (error as Error).message },
-          timestamp: new Date().toISOString(),
-          request_id: `notion_dashboard_error_${Date.now()}`,
+          request_id: `registry_create_error_${Date.now()}`,
         };
       }
     },
   },
 };
+
+// Debug utility for testing Notion connection
+export const testNotionConnection = async () => {
+  console.log("🧪 Testing Vercel API routes...");
+  console.log("🔑 API Key:", ENV.NOTION_API_KEY ? "Set" : "NOT SET");
+  console.log("👥 Users DB:", ENV.NOTION_DATABASES.USERS);
+  console.log("🏢 Apps DB:", ENV.NOTION_DATABASES.APPLICATIONS);
+  console.log("📋 Requests DB:", ENV.NOTION_DATABASES.ACCESS_REQUESTS);
+  console.log("📊 Registry DB:", ENV.NOTION_DATABASES.ACCESS_REGISTRY);
+
+  try {
+    console.log("🔍 Testing Users database access...");
+    const response = await notion.queryDatabase(ENV.NOTION_DATABASES.USERS);
+    console.log(
+      "✅ Users database accessible, found",
+      response.results.length,
+      "items",
+    );
+    return { success: true, data: response };
+  } catch (error: any) {
+    console.log("❌ Users database access failed:", error);
+    return { success: false, error };
+  }
+};
+
+// Make it available globally for debugging
+if (typeof window !== "undefined") {
+  (window as any).testNotionConnection = testNotionConnection;
+}
