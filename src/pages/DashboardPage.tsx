@@ -10,6 +10,7 @@ import type {
   AccessRequest,
   Notification,
   User,
+  Application,
 } from "@/types";
 
 export const DashboardPage: React.FC = () => {
@@ -18,12 +19,19 @@ export const DashboardPage: React.FC = () => {
   const [recentRequests, setRecentRequests] = useState<AccessRequest[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Helper function to get user name by ID
   const getUserName = (userId: string) => {
     const user = users.find((u) => u.id === userId);
     return user?.name || `User ${userId}`;
+  };
+
+  // Helper function to get application name by ID
+  const getApplicationName = (appId: string) => {
+    const app = applications.find((a) => a.id === appId);
+    return app?.name || `Application ${appId}`;
   };
 
   const isEmployee = user?.role === USER_ROLES.employee;
@@ -38,15 +46,23 @@ export const DashboardPage: React.FC = () => {
 
         if (isEmployee && user?.id) {
           // For employees: fetch only their data
-          const [accessResponse, requestsResponse, usersResponse] =
-            await Promise.all([
-              api.accessRegistry.getAll({ employee_id: user.id }),
-              api.accessRequests.getAll({ employee_id: user.id }),
-              api.users.getAll(),
-            ]);
+          const [
+            accessResponse,
+            requestsResponse,
+            usersResponse,
+            appsResponse,
+          ] = await Promise.all([
+            api.accessRegistry.getAll({ employee_id: user.id }),
+            api.accessRequests.getAll({ employee_id: user.id }),
+            api.users.getAll(),
+            api.applications.getAll(),
+          ]);
 
           if (usersResponse.success) {
             setUsers(usersResponse.data || []);
+          }
+          if (appsResponse.success) {
+            setApplications(appsResponse.data || []);
           }
 
           // Set employee-specific stats
@@ -68,10 +84,12 @@ export const DashboardPage: React.FC = () => {
           setRecentRequests(requestsResponse.data || []);
         } else {
           // For admins: fetch all data
-          const [dashboardResponse, usersResponse] = await Promise.all([
-            api.dashboard.getStats(),
-            api.users.getAll(),
-          ]);
+          const [dashboardResponse, usersResponse, appsResponse] =
+            await Promise.all([
+              api.dashboard.getStats(),
+              api.users.getAll(),
+              api.applications.getAll(),
+            ]);
 
           if (dashboardResponse.success && dashboardResponse.data) {
             dashboardData = dashboardResponse.data;
@@ -87,6 +105,9 @@ export const DashboardPage: React.FC = () => {
 
           if (usersResponse.success) {
             setUsers(usersResponse.data || []);
+          }
+          if (appsResponse.success) {
+            setApplications(appsResponse.data || []);
           }
         }
       } catch (error) {
@@ -242,8 +263,8 @@ export const DashboardPage: React.FC = () => {
                 >
                   <div>
                     <p className="text-sm font-medium text-gray-900">
-                      {getUserName(request.employee_id)} - Application #
-                      {request.application_id}
+                      {getUserName(request.employee_id)} -{" "}
+                      {getApplicationName(request.application_id)}
                     </p>
                     <p className="text-xs text-gray-600">
                       {formatRelativeDate(request.request_date)}
