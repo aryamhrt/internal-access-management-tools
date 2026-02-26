@@ -33,13 +33,21 @@ export const UsersPage: React.FC = () => {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   // Check permissions
+  const canViewUsers = user
+    ? hasRole(user.role, "super_admin") || Boolean(user.can_manage_users)
+    : false;
+
   const canAddUsers =
     user &&
     (hasRole(user.role, "super_admin") || hasRole(user.role, "app_admin"));
 
   useEffect(() => {
-    loadUsers();
-  }, []);
+    if (canViewUsers) {
+      loadUsers();
+    } else {
+      setIsLoading(false);
+    }
+  }, [canViewUsers]);
 
   useEffect(() => {
     filterUsers();
@@ -186,6 +194,19 @@ export const UsersPage: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!canViewUsers) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Users</h1>
+          <p className="text-gray-600">
+            You do not have permission to view this page.
+          </p>
         </div>
       </div>
     );

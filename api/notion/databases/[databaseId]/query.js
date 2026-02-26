@@ -23,10 +23,24 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Notion API key not configured" });
     }
 
-    const { databaseId, ...body } = req.body;
+    // databaseId comes from the URL path param in Vercel.
+    // In local dev (Vite), req.body may include databaseId or may be empty.
+    // Prefer path param, fallback to body.
+    const databaseId =
+      req.query?.databaseId || req.body?.databaseId || req.body?.database_id;
 
     if (!databaseId) {
       return res.status(400).json({ error: "Database ID is required" });
+    }
+
+    // Body should contain only Notion query payload (filter/sorts/start_cursor/page_size).
+    // Some callers mistakenly send `{ and: [...] }` directly; normalize it to `{ filter: { and: [...] } }`.
+    let body = req.body || {};
+    if (body.databaseId) delete body.databaseId;
+    if (body.database_id) delete body.database_id;
+
+    if (body.and && !body.filter) {
+      body = { filter: { and: body.and } };
     }
 
     const response = await fetch(

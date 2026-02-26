@@ -2,7 +2,6 @@ import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
-import { hasRole } from "@/lib/utils";
 import { USER_ROLES } from "@/lib/constants";
 
 interface LayoutProps {
@@ -19,8 +18,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: "Access Registry", href: "/access-registry", icon: "📖" },
   ];
 
-  // Add admin-only navigation
-  if (user && hasRole(user.role, "app_admin")) {
+  // Applications is visible to all roles (read-only for employees)
+  if (user) {
     navigation.push({
       name: "Applications",
       href: "/applications",
@@ -29,6 +28,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   }
 
   if (user && user.role === "super_admin") {
+    navigation.splice(1, 0, { name: "Users", href: "/users", icon: "👥" });
+  }
+
+  if (user && user.role !== "super_admin" && user.can_manage_users) {
     navigation.splice(1, 0, { name: "Users", href: "/users", icon: "👥" });
   }
 

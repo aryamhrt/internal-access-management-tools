@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { USER_ROLES, USER_STATUSES } from "@/lib/constants";
 import type { User, Application, AccessRequest, AccessRegistry } from "@/types";
 import api from "@/lib/api";
@@ -12,12 +13,19 @@ export const UserDetailsPage: React.FC<UserDetailsPageProps> = ({
   userId,
   onBack,
 }) => {
+  const { user: currentUser } = useAuth();
   const [userDetails, setUserDetails] = useState<User | null>(null);
   const [userAccesses, setUserAccesses] = useState<AccessRegistry[]>([]);
   const [userRequests, setUserRequests] = useState<AccessRequest[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>("");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [showOffboardModal, setShowOffboardModal] = useState(false);
+  const [offboardDate, setOffboardDate] = useState<string>(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [offboardError, setOffboardError] = useState<string>("");
 
   useEffect(() => {
     loadUserDetails();
@@ -109,6 +117,57 @@ export const UserDetailsPage: React.FC<UserDetailsPageProps> = ({
     }
   };
 
+  const canManageUsers = currentUser
+    ? currentUser.role === "super_admin" ||
+      Boolean(currentUser.can_manage_users)
+    : false;
+
+  const canDeactivateThisUser =
+    canManageUsers &&
+    userDetails !== null &&
+    userDetails.status === "active" &&
+    currentUser !== null &&
+    currentUser.id !== userDetails.id;
+
+  const openOffboardModal = () => {
+    if (!userDetails) return;
+    setOffboardError("");
+    setOffboardDate(
+      (userDetails.offboard_date || new Date().toISOString()).slice(0, 10),
+    );
+    setShowOffboardModal(true);
+  };
+
+  const handleConfirmOffboard = async () => {
+    if (!userDetails || isUpdatingStatus) return;
+    if (!canDeactivateThisUser) return;
+
+    if (!offboardDate) {
+      setOffboardError("Offboard date is required");
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    setError("");
+    setOffboardError("");
+
+    try {
+      const res = await api.users.offboard(userDetails.id, offboardDate);
+      if (!res.success) {
+        setOffboardError(res.error?.message || "Failed to offboard user");
+        return;
+      }
+
+      setShowOffboardModal(false);
+      await loadUserDetails();
+    } catch (e) {
+      console.error("Error offboarding user:", e);
+      setOffboardError("Failed to offboard user");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-8">
@@ -162,7 +221,23 @@ export const UserDetailsPage: React.FC<UserDetailsPageProps> = ({
         >
           ← Back to Users
         </button>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {canManageUsers && (
+            <button
+              onClick={openOffboardModal}
+              disabled={!canDeactivateThisUser || isUpdatingStatus}
+              className="px-3 py-1 rounded-md text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={
+                currentUser?.id === userDetails.id
+                  ? "You cannot deactivate your own account"
+                  : userDetails.status !== "active"
+                    ? "User is not active"
+                    : undefined
+              }
+            >
+              Mark Offboarded
+            </button>
+          )}
           <span
             className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getRoleBadgeColor(
               userDetails.role,
@@ -224,6 +299,65 @@ export const UserDetailsPage: React.FC<UserDetailsPageProps> = ({
           </div>
         </div>
       </div>
+
+      {showOffboardModal && userDetails && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Offboard User
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Set the offboard date and mark this user as offboarded.
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="text-sm font-medium text-gray-900">
+                  {userDetails.name}
+                </div>
+                <div className="text-sm text-gray-600">{userDetails.email}</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Offboard Date
+                </label>
+                <input
+                  type="date"
+                  value={offboardDate}
+                  onChange={(e) => setOffboardDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {offboardError && (
+                <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                  <p className="text-sm text-red-700">{offboardError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => setShowOffboardModal(false)}
+                disabled={isUpdatingStatus}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmOffboard}
+                disabled={isUpdatingStatus}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdatingStatus ? "Updating..." : "Confirm Offboard"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* App Access Section */}

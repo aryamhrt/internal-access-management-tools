@@ -28,6 +28,8 @@ export const ApplicationsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>("");
 
+  const canManageApplications = user?.role === "super_admin";
+
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
   const [showAssignAdmin, setShowAssignAdmin] = useState<Application | null>(
@@ -69,22 +71,23 @@ export const ApplicationsPage: React.FC = () => {
     setError("");
 
     try {
-      // Load fresh data from API
-      const [appsResponse, usersResponse] = await Promise.all([
-        api.applications.getAll(),
-        api.users.getAll(),
-      ]);
+      const appsResponse = await api.applications.getAll();
 
-      if (appsResponse.success && usersResponse.success) {
+      if (appsResponse.success) {
         setApplications(appsResponse.data || []);
-        setAllUsers(usersResponse.data || []);
-        console.log(
-          "Loaded from API:",
-          appsResponse.data?.length,
-          "apps,",
-          usersResponse.data?.length,
-          "users",
-        );
+
+        if (canManageApplications) {
+          const usersResponse = await api.users.getAll();
+          if (usersResponse.success) {
+            setAllUsers(usersResponse.data || []);
+          } else {
+            setAllUsers([]);
+          }
+        } else {
+          setAllUsers([]);
+        }
+
+        console.log("Loaded from API:", appsResponse.data?.length, "apps");
       } else {
         setError("Failed to load data from API");
       }
@@ -102,6 +105,7 @@ export const ApplicationsPage: React.FC = () => {
   };
 
   const createApplication = async () => {
+    if (!canManageApplications) return;
     if (isCreating) return; // Prevent multiple submissions
 
     setIsCreating(true);
@@ -133,6 +137,7 @@ export const ApplicationsPage: React.FC = () => {
   };
 
   const updateApplication = async () => {
+    if (!canManageApplications) return;
     if (!editingApp || isUpdating) return; // Prevent multiple submissions
 
     setIsUpdating(true);
@@ -165,6 +170,7 @@ export const ApplicationsPage: React.FC = () => {
   };
 
   const assignAdminToApplication = async () => {
+    if (!canManageApplications) return;
     if (!showAssignAdmin || !assignForm.user_id || isAssigning) return; // Prevent multiple submissions
 
     setIsAssigning(true);
@@ -206,6 +212,7 @@ export const ApplicationsPage: React.FC = () => {
   };
 
   const handleDeleteApplication = async (appId: string) => {
+    if (!canManageApplications) return;
     if (
       !confirm(
         "Are you sure you want to delete this application? This action cannot be undone.",
@@ -250,7 +257,7 @@ export const ApplicationsPage: React.FC = () => {
           <div className="h-10 bg-gray-200 rounded animate-pulse w-32"></div>
         </div>
 
-        <div className="grid gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Loading skeletons */}
           {[...Array(3)].map((_, i) => (
             <div
@@ -332,7 +339,7 @@ export const ApplicationsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        {user?.role === "super_admin" && (
+        {canManageApplications && (
           <button
             onClick={() => setShowCreateForm(true)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
@@ -343,7 +350,7 @@ export const ApplicationsPage: React.FC = () => {
         )}
       </div>
 
-      <div className="grid gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {applications
           .filter((app) => {
             if (!adminEmailFilter.trim()) return true;
@@ -377,38 +384,43 @@ export const ApplicationsPage: React.FC = () => {
                 </div>
 
                 <div className="flex gap-1 ml-4">
-                  <button
-                    onClick={() => {
-                      setEditingApp(app);
-                      setEditForm({
-                        name: app.name,
-                        category: app.category,
-                        description: app.description,
-                      });
-                    }}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
-                    title="Edit application"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowAssignAdmin(app);
-                      setAssignForm({ application_id: app.id, user_id: "" });
-                    }}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
-                    title="Assign admin"
-                  >
-                    👤
-                  </button>
-                  {user?.role === "super_admin" && (
-                    <button
-                      onClick={() => handleDeleteApplication(app.id)}
-                      className="p-1.5 text-red-400 hover:text-red-600 rounded"
-                      title="Delete application"
-                    >
-                      🗑️
-                    </button>
+                  {canManageApplications && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setEditingApp(app);
+                          setEditForm({
+                            name: app.name,
+                            category: app.category,
+                            description: app.description,
+                          });
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
+                        title="Edit application"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAssignAdmin(app);
+                          setAssignForm({
+                            application_id: app.id,
+                            user_id: "",
+                          });
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
+                        title="Assign admin"
+                      >
+                        👤
+                      </button>
+                      <button
+                        onClick={() => handleDeleteApplication(app.id)}
+                        className="p-1.5 text-red-400 hover:text-red-600 rounded"
+                        title="Delete application"
+                      >
+                        🗑️
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -464,7 +476,7 @@ export const ApplicationsPage: React.FC = () => {
       </div>
 
       {/* Create Application Modal */}
-      {showCreateForm && (
+      {showCreateForm && canManageApplications && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -559,7 +571,7 @@ export const ApplicationsPage: React.FC = () => {
       )}
 
       {/* Edit Application Modal */}
-      {editingApp && (
+      {editingApp && canManageApplications && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -647,7 +659,7 @@ export const ApplicationsPage: React.FC = () => {
       )}
 
       {/* Assign Admin Modal */}
-      {showAssignAdmin && (
+      {showAssignAdmin && canManageApplications && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">

@@ -29,7 +29,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (token && savedUser) {
         try {
-          setUser(JSON.parse(savedUser));
+          const restoredUser = JSON.parse(savedUser);
+          if (typeof restoredUser?.can_manage_users !== "boolean") {
+            restoredUser.can_manage_users = false;
+          }
+          setUser(restoredUser);
           // For now, just trust the stored token (can add verification later)
           // TODO: Add token verification endpoint later
         } catch (error) {
@@ -73,6 +77,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (!userData.role || userData.role.trim() === "") {
           console.warn("⚠️ User role is empty, defaulting to employee");
           userData.role = "employee";
+        }
+
+        if (typeof userData.can_manage_users !== "boolean") {
+          userData.can_manage_users = false;
         }
 
         // Store auth data

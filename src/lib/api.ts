@@ -3,6 +3,7 @@ import { ENV } from "@/lib/constants";
 import { notionBackend } from "./notion-backend";
 import type {
   User,
+  UserStatus,
   Application,
   AccessRequest,
   AccessRegistry,
@@ -133,6 +134,38 @@ const api =
             return makeAppsScriptRequest(`users?${params}`, {
               method: "POST",
             });
+          },
+
+          updateStatus: async (
+            _id: string,
+            _status: UserStatus,
+          ): Promise<ApiResponse<User>> => {
+            return {
+              success: false,
+              error: {
+                code: "NOT_IMPLEMENTED",
+                message:
+                  "User status updates are not implemented for the Apps Script backend.",
+              },
+              timestamp: new Date().toISOString(),
+              request_id: `users_update_status_${Date.now()}`,
+            };
+          },
+
+          offboard: async (
+            _id: string,
+            _offboardDate: string,
+          ): Promise<ApiResponse<User>> => {
+            return {
+              success: false,
+              error: {
+                code: "NOT_IMPLEMENTED",
+                message:
+                  "User offboarding is not implemented for the Apps Script backend.",
+              },
+              timestamp: new Date().toISOString(),
+              request_id: `users_offboard_${Date.now()}`,
+            };
           },
         },
         accessRequests: {

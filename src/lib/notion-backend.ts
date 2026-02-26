@@ -2,6 +2,7 @@
 import { ENV } from "@/lib/constants";
 import type {
   User,
+  UserStatus,
   Application,
   AccessRequest,
   AccessRegistry,
@@ -13,12 +14,17 @@ class NotionAPI {
     const url = `/api/notion/databases/${databaseId}/query`;
     console.log(`🌐 Vercel API Request: POST ${url}`);
 
+    // Notion API expects filter/sort payload only.
+    // databaseId is already in the URL path and must NOT be included in the body.
+    const body =
+      filter && Object.keys(filter).length > 0 ? JSON.stringify(filter) : "{}";
+
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ databaseId, ...(filter || {}) }),
+      body,
     });
 
     if (!response.ok) {
@@ -82,7 +88,25 @@ class NotionAPI {
   }
 
   async getPage(pageId: string): Promise<any> {
-    const url = `/api/notion/pages?pageId=${pageId}`;
+    if (!pageId || typeof pageId !== "string") {
+      throw new Error("Invalid Notion pageId: empty");
+    }
+
+    // Notion page IDs are UUID-like. We accept both dashed and non-dashed forms.
+    const normalized = pageId.trim();
+    const uuidLike =
+      /^[0-9a-fA-F]{32}$/.test(normalized) ||
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+        normalized,
+      );
+
+    if (!uuidLike) {
+      throw new Error(
+        `Invalid Notion pageId format (expected UUID): "${normalized}"`,
+      );
+    }
+
+    const url = `/api/notion/pages/${encodeURIComponent(normalized)}`;
     console.log(`🌐 Vercel API Request: GET ${url}`);
 
     const response = await fetch(url, {
@@ -95,7 +119,9 @@ class NotionAPI {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`❌ Vercel API Error:`, errorText);
-      throw new Error(`Vercel API error: ${response.status} - ${errorText}`);
+      throw new Error(
+        `Vercel API error: ${response.status} - ${errorText} (pageId=${pageId})`,
+      );
     }
 
     const data = await response.json();
@@ -125,6 +151,7 @@ function notionToUser(page: any): User {
     name: props.Name?.title?.[0]?.plain_text || "",
     email: props.Email?.email || "",
     role: props.Role?.select?.name || "employee",
+    can_manage_users: props["Can Manage Users"]?.checkbox || false,
     status: props.Status?.select?.name || "active",
     join_date: props["Join Date"]?.date?.start || "",
     offboard_date: props["Offboard Date"]?.date?.start || undefined,
@@ -187,6 +214,7 @@ function userToNotion(user: Partial<User>): any {
       email: user.email || "",
     },
     Role: { select: { name: user.role || "employee" } },
+    "Can Manage Users": { checkbox: Boolean(user.can_manage_users) },
     Status: { select: { name: user.status || "active" } },
     "Join Date": user.join_date
       ? { date: { start: user.join_date } }
@@ -521,6 +549,7 @@ export const notionBackend = {
           name: data.name,
           email: data.email,
           role: data.role as any,
+          can_manage_users: false,
           status: "active",
           join_date: new Date().toISOString(),
           created_at: new Date().toISOString(),
@@ -543,6 +572,61 @@ export const notionBackend = {
           error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
           request_id: `user_create_error_${Date.now()}`,
+        };
+      }
+    },
+
+    updateStatus: async (
+      id: string,
+      status: UserStatus,
+    ): Promise<ApiResponse<User>> => {
+      try {
+        const properties: any = {
+          Status: { select: { name: status } },
+        };
+
+        const response = await notion.updatePage(id, properties);
+        const user = notionToUser(response);
+        return {
+          success: true,
+          data: user,
+          timestamp: new Date().toISOString(),
+          request_id: `user_update_status_${id}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: { code: "NOTION_ERROR", message: error.message },
+          timestamp: new Date().toISOString(),
+          request_id: `user_update_status_error_${id}`,
+        };
+      }
+    },
+
+    offboard: async (
+      id: string,
+      offboardDate: string,
+    ): Promise<ApiResponse<User>> => {
+      try {
+        const properties: any = {
+          Status: { select: { name: "offboard" } },
+          "Offboard Date": { date: { start: offboardDate } },
+        };
+
+        const response = await notion.updatePage(id, properties);
+        const user = notionToUser(response);
+        return {
+          success: true,
+          data: user,
+          timestamp: new Date().toISOString(),
+          request_id: `user_offboard_${id}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: { code: "NOTION_ERROR", message: error.message },
+          timestamp: new Date().toISOString(),
+          request_id: `user_offboard_error_${id}`,
         };
       }
     },
@@ -578,7 +662,9 @@ export const notionBackend = {
 
         const response = await notion.queryDatabase(
           ENV.NOTION_DATABASES.ACCESS_REQUESTS,
-          filterConditions.length > 0 ? { and: filterConditions } : undefined,
+          filterConditions.length > 0
+            ? { filter: { and: filterConditions } }
+            : undefined,
         );
 
         const requests = response.results.map(notionToAccessRequest);
@@ -798,7 +884,9 @@ export const notionBackend = {
 
         const response = await notion.queryDatabase(
           ENV.NOTION_DATABASES.ACCESS_REGISTRY,
-          filterConditions.length > 0 ? { and: filterConditions } : undefined,
+          filterConditions.length > 0
+            ? { filter: { and: filterConditions } }
+            : undefined,
         );
 
         const registry = response.results.map(notionToAccessRegistry);

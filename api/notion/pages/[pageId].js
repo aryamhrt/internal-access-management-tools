@@ -27,7 +27,11 @@ export default async function handler(req, res) {
 
     let url, method;
 
-    if (req.method === "PATCH") {
+    if (req.method === "GET") {
+      // Get page
+      url = `https://api.notion.com/v1/pages/${pageId}`;
+      method = "GET";
+    } else if (req.method === "PATCH") {
       // Update page
       url = `https://api.notion.com/v1/pages/${pageId}`;
       method = "PATCH";
@@ -42,7 +46,7 @@ export default async function handler(req, res) {
         "Notion-Version": "2022-06-28",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(req.body),
+      body: method === "PATCH" ? JSON.stringify(req.body) : undefined,
     });
 
     const data = await response.json();

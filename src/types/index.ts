@@ -8,6 +8,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  can_manage_users?: boolean;
   status: UserStatus;
   join_date: string;
   offboard_date?: string;

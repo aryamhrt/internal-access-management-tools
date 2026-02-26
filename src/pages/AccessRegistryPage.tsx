@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import api from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -18,6 +18,13 @@ export const AccessRegistryPage: React.FC = () => {
     "all" | "active" | "revoked"
   >("all");
   const [filterApplication, setFilterApplication] = useState<string>("all");
+
+  // Searchable application filter
+  const [applicationSearch, setApplicationSearch] = useState("");
+  const [showApplicationDropdown, setShowApplicationDropdown] = useState(false);
+
+  // Employee search (name/email)
+  const [employeeSearch, setEmployeeSearch] = useState("");
 
   useEffect(() => {
     loadInitialData();
@@ -51,6 +58,11 @@ export const AccessRegistryPage: React.FC = () => {
 
   const loadUsers = async () => {
     try {
+      if (user?.role === "employee") {
+        setUsers([]);
+        return;
+      }
+
       const response = await api.users.getAll();
       if (response.success && response.data) {
         setUsers(response.data);
@@ -65,6 +77,11 @@ export const AccessRegistryPage: React.FC = () => {
       const filters: any = {};
       if (filterStatus !== "all") {
         filters.status = filterStatus;
+      }
+
+      // Employees should only see their own access registry entries
+      if (user?.role === "employee" && user.id) {
+        filters.employee_id = user.id;
       }
 
       const response = await api.accessRegistry.getAll(filters);
@@ -107,22 +124,53 @@ export const AccessRegistryPage: React.FC = () => {
     return user?.name || `User ${userId}`;
   };
 
-  // Get applications user can manage
+  const userById = useMemo(() => {
+    return new Map(users.map((u) => [u.id, u] as const));
+  }, [users]);
+
+  // Determine which applications can be shown/filtered in this view
   const manageableApplications =
     user?.role === "super_admin"
       ? applications
-      : applications.filter(
-          (app) =>
-            user?.role === "app_admin" &&
-            app.admin_emails?.includes(user.email),
-        );
+      : user?.role === "app_admin"
+        ? applications.filter((app) => app.admin_emails?.includes(user.email))
+        : [];
+
+  const visibleApplications = (() => {
+    if (user?.role === "super_admin") return applications;
+    if (user?.role === "app_admin") return manageableApplications;
+
+    // employee: only show apps present in their registry entries
+    const appIds = new Set(registry.map((r) => r.application_id));
+    return applications.filter((app) => appIds.has(app.id));
+  })();
+
+  const selectedApplication =
+    filterApplication === "all"
+      ? null
+      : visibleApplications.find((app) => app.id === filterApplication) || null;
+
+  const filteredVisibleApplications = useMemo(() => {
+    const q = applicationSearch.trim().toLowerCase();
+    if (!q) return visibleApplications;
+
+    return visibleApplications.filter((app) => {
+      const name = (app.name || "").toLowerCase();
+      const category = (app.category || "").toLowerCase();
+      return name.includes(q) || category.includes(q);
+    });
+  }, [applicationSearch, visibleApplications]);
 
   const filteredRegistry = registry.filter((entry) => {
-    // Filter by applications user can manage
-    const canManageApp = manageableApplications.some(
-      (app) => app.id === entry.application_id,
-    );
-    if (!canManageApp) return false;
+    // Role-based visibility
+    if (user?.role === "employee") {
+      if (entry.employee_id !== user.id) return false;
+    } else if (user?.role === "app_admin") {
+      const canManageApp = manageableApplications.some(
+        (app) => app.id === entry.application_id,
+      );
+      if (!canManageApp) return false;
+    }
 
     // Filter by status
     if (filterStatus !== "all" && entry.status !== filterStatus) return false;
@@ -133,6 +181,20 @@ export const AccessRegistryPage: React.FC = () => {
       entry.application_id !== filterApplication
     )
       return false;
+
+    // Filter by employee name/email (admin only)
+    const employeeQ = employeeSearch.trim().toLowerCase();
+    if (employeeQ && user?.role !== "employee") {
+      const employee = userById.get(entry.employee_id);
+      const haystack = `${employee?.name || ""} ${employee?.email || ""}`
+        .trim()
+        .toLowerCase();
+
+      const tokens = employeeQ.split(/\s+/).filter(Boolean);
+      if (tokens.length > 0 && !tokens.every((t) => haystack.includes(t))) {
+        return false;
+      }
+    }
 
     return true;
   });
@@ -180,22 +242,98 @@ export const AccessRegistryPage: React.FC = () => {
           <label className="text-sm font-medium text-gray-700">
             Filter by application:
           </label>
-          <select
-            value={filterApplication}
-            onChange={(e) => {
-              setFilterApplication(e.target.value);
-              // No need to reload since we're filtering client-side
-            }}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Applications</option>
-            {manageableApplications.map((app) => (
-              <option key={app.id} value={app.id}>
-                {app.name}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <input
+              type="text"
+              value={
+                showApplicationDropdown
+                  ? applicationSearch
+                  : selectedApplication
+                    ? `${selectedApplication.name} - ${selectedApplication.category}`
+                    : applicationSearch
+              }
+              onChange={(e) => {
+                setApplicationSearch(e.target.value);
+                setShowApplicationDropdown(true);
+                if (filterApplication !== "all") {
+                  setFilterApplication("all");
+                }
+              }}
+              onFocus={() => {
+                setShowApplicationDropdown(true);
+              }}
+              onBlur={() => {
+                window.setTimeout(() => setShowApplicationDropdown(false), 150);
+              }}
+              placeholder="Search application by name or category..."
+              className="w-80 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            {showApplicationDropdown && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setFilterApplication("all");
+                    setApplicationSearch("");
+                    setShowApplicationDropdown(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+                >
+                  <div className="font-medium text-gray-900">
+                    All Applications
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Clear application filter
+                  </div>
+                </button>
+
+                {filteredVisibleApplications.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-gray-500">
+                    No applications found
+                  </div>
+                ) : (
+                  filteredVisibleApplications.map((app) => (
+                    <button
+                      key={app.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setFilterApplication(app.id);
+                        setApplicationSearch(`${app.name} - ${app.category}`);
+                        setShowApplicationDropdown(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+                    >
+                      <div className="font-medium text-gray-900">
+                        {app.name}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {app.category}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
+        {user?.role !== "employee" && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">
+              Search employee:
+            </label>
+            <input
+              type="text"
+              value={employeeSearch}
+              onChange={(e) => setEmployeeSearch(e.target.value)}
+              placeholder="Name or email..."
+              className="w-72 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
       </div>
 
       {/* Registry Table */}
@@ -254,11 +392,7 @@ export const AccessRegistryPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge
-                        status={
-                          entry.status === "active" ? "success" : "danger"
-                        }
-                      >
+                      <StatusBadge status={entry.status}>
                         {entry.status}
                       </StatusBadge>
                     </td>

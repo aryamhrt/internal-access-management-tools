@@ -25,11 +25,21 @@ export const AccessRequestsPage: React.FC = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
+  const [approvalAction, setApprovalAction] = useState<null | {
+    type: "approve" | "reject";
+    requestId: string;
+  }>(null);
+  const isBlockingAction = approvalAction !== null;
+
   // Form state
   const [createForm, setCreateForm] = useState<AccessRequestFormData>({
     application_id: "",
     justification: "",
   });
+
+  // Searchable application select state
+  const [applicationSearch, setApplicationSearch] = useState("");
+  const [showApplicationDropdown, setShowApplicationDropdown] = useState(false);
 
   // For admin creating requests on behalf of others
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
@@ -246,7 +256,10 @@ export const AccessRequestsPage: React.FC = () => {
   };
 
   const handleApproveRequest = async (requestId: string) => {
+    if (isBlockingAction) return;
     if (!confirm("Are you sure you want to approve this request?")) return;
+
+    setApprovalAction({ type: "approve", requestId });
 
     try {
       // First get the request details
@@ -287,12 +300,17 @@ export const AccessRequestsPage: React.FC = () => {
     } catch (error) {
       console.error("Error approving request:", error);
       alert("Error approving request");
+    } finally {
+      setApprovalAction(null);
     }
   };
 
   const handleRejectRequest = async (requestId: string) => {
+    if (isBlockingAction) return;
     const notes = prompt("Enter rejection notes (optional):");
     if (notes === null) return; // User cancelled
+
+    setApprovalAction({ type: "reject", requestId });
 
     try {
       const response = await api.accessRequests.reject(
@@ -308,6 +326,8 @@ export const AccessRequestsPage: React.FC = () => {
     } catch (error) {
       console.error("Error rejecting request:", error);
       alert("Error rejecting request");
+    } finally {
+      setApprovalAction(null);
     }
   };
 
@@ -339,6 +359,26 @@ export const AccessRequestsPage: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      {isBlockingAction && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-sm p-6">
+            <div className="flex items-center gap-3">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+              <div>
+                <div className="text-sm font-semibold text-gray-900">
+                  {approvalAction.type === "approve"
+                    ? "Approving request..."
+                    : "Rejecting request..."}
+                </div>
+                <div className="text-xs text-gray-600 mt-0.5">
+                  Please wait. Do not close or refresh.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Access Requests</h1>
@@ -347,6 +387,7 @@ export const AccessRequestsPage: React.FC = () => {
         <Button
           onClick={() => setShowCreateForm(true)}
           className="flex items-center gap-2"
+          disabled={isBlockingAction}
         >
           <span>+</span>
           Request Access
@@ -358,6 +399,7 @@ export const AccessRequestsPage: React.FC = () => {
         <nav className="-mb-px flex space-x-8">
           <button
             onClick={() => setActiveTab("my-requests")}
+            disabled={isBlockingAction}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === "my-requests"
                 ? "border-blue-500 text-blue-600"
@@ -369,6 +411,7 @@ export const AccessRequestsPage: React.FC = () => {
           {canApproveRequests && (
             <button
               onClick={() => setActiveTab("pending-approval")}
+              disabled={isBlockingAction}
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 activeTab === "pending-approval"
                   ? "border-blue-500 text-blue-600"
@@ -381,6 +424,7 @@ export const AccessRequestsPage: React.FC = () => {
           {user?.role === "super_admin" && (
             <button
               onClick={() => setActiveTab("all-requests")}
+              disabled={isBlockingAction}
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 activeTab === "all-requests"
                   ? "border-blue-500 text-blue-600"
@@ -394,77 +438,194 @@ export const AccessRequestsPage: React.FC = () => {
       </div>
 
       {/* Requests List */}
-      <div className="space-y-4">
-        {requests.length === 0 ? (
-          <div className="card text-center py-12">
-            <p className="text-gray-500">
-              {activeTab === "my-requests"
-                ? "You have no access requests yet."
-                : "No requests found."}
-            </p>
-          </div>
-        ) : (
-          requests.map((request) => (
-            <div key={request.id} className="card">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {getApplicationName(request.application_id)}
-                    </h3>
-                    <StatusBadge status={request.status}>
-                      {request.status}
-                    </StatusBadge>
-                  </div>
+      {requests.length === 0 ? (
+        <div className="card text-center py-12">
+          <p className="text-gray-500">
+            {activeTab === "my-requests"
+              ? "You have no access requests yet."
+              : "No requests found."}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Mobile: compact accordion */}
+          <div className="space-y-3 md:hidden">
+            {requests.map((request) => (
+              <details
+                key={request.id}
+                className="bg-white rounded-lg border border-gray-200 px-4 py-3"
+              >
+                <summary className="cursor-pointer list-none">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-gray-900 truncate">
+                        {getApplicationName(request.application_id)}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        {formatRelativeDate(request.request_date)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={request.status}>
+                        {request.status}
+                      </StatusBadge>
 
-                  <div className="text-sm text-gray-600 space-y-1">
-                    <p>
-                      <span className="font-medium">Requested by:</span>{" "}
-                      {getEmployeeName(request.employee_id)}
-                    </p>
-                    <p>
-                      <span className="font-medium">Date:</span>{" "}
-                      {formatRelativeDate(request.request_date)}
-                    </p>
-                    {request.justification && (
-                      <p>
-                        <span className="font-medium">Justification:</span>{" "}
+                      {request.status === "pending" && canApproveRequests && (
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="primary"
+                            disabled={isBlockingAction}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleApproveRequest(request.id);
+                            }}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="danger"
+                            disabled={isBlockingAction}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleRejectRequest(request.id);
+                            }}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </summary>
+
+                <div className="pt-3 mt-3 border-t border-gray-100 space-y-2 text-sm text-gray-700">
+                  <div>
+                    <span className="font-medium">Requested by:</span>{" "}
+                    {getEmployeeName(request.employee_id)}
+                  </div>
+                  {request.justification && (
+                    <div>
+                      <span className="font-medium">Justification:</span>{" "}
+                      <span className="text-gray-600">
                         {request.justification}
-                      </p>
-                    )}
-                    {request.admin_notes && (
-                      <p>
-                        <span className="font-medium">Notes:</span>{" "}
+                      </span>
+                    </div>
+                  )}
+                  {request.admin_notes && (
+                    <div>
+                      <span className="font-medium">Notes:</span>{" "}
+                      <span className="text-gray-600">
                         {request.admin_notes}
-                      </p>
-                    )}
-                  </div>
+                      </span>
+                    </div>
+                  )}
                 </div>
+              </details>
+            ))}
+          </div>
 
-                {/* Actions */}
-                {request.status === "pending" && canApproveRequests && (
-                  <div className="flex gap-2 ml-4">
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() => handleApproveRequest(request.id)}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => handleRejectRequest(request.id)}
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                )}
-              </div>
+          {/* Desktop: table */}
+          <div className="hidden md:block bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Application
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Requested By
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="hidden lg:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Justification
+                    </th>
+                    {(canApproveRequests || activeTab !== "my-requests") && (
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {requests.map((request) => (
+                    <tr key={request.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">
+                          {getApplicationName(request.application_id)}
+                        </div>
+                        {request.admin_notes && (
+                          <div className="text-xs text-gray-500 mt-0.5 truncate max-w-[24rem]">
+                            Note: {request.admin_notes}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {getEmployeeName(request.employee_id)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {formatRelativeDate(request.request_date)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <StatusBadge status={request.status}>
+                          {request.status}
+                        </StatusBadge>
+                      </td>
+                      <td className="hidden lg:table-cell px-6 py-4 text-sm text-gray-600">
+                        <div
+                          className="max-w-[32rem] truncate"
+                          title={request.justification || ""}
+                        >
+                          {request.justification || "-"}
+                        </div>
+                      </td>
+                      {(canApproveRequests || activeTab !== "my-requests") && (
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          {request.status === "pending" &&
+                          canApproveRequests ? (
+                            <div className="inline-flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                disabled={isBlockingAction}
+                                onClick={() => handleApproveRequest(request.id)}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                disabled={isBlockingAction}
+                                onClick={() => handleRejectRequest(request.id)}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))
-        )}
-      </div>
+          </div>
+        </>
+      )}
 
       {/* Create Request Modal */}
       {showCreateForm && (
@@ -475,6 +636,108 @@ export const AccessRequestsPage: React.FC = () => {
             </h3>
 
             <div className="space-y-4">
+              {/* Searchable Application Select */}
+              {(() => {
+                const selectedApp = applications.find(
+                  (a) => a.id === createForm.application_id,
+                );
+
+                const filteredApps = applications.filter((app) => {
+                  const q = applicationSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return (
+                    app.name.toLowerCase().includes(q) ||
+                    app.category.toLowerCase().includes(q)
+                  );
+                });
+
+                return (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Application *
+                    </label>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={
+                          showApplicationDropdown
+                            ? applicationSearch
+                            : selectedApp
+                              ? `${selectedApp.name} - ${selectedApp.category}`
+                              : applicationSearch
+                        }
+                        onChange={(e) => {
+                          setApplicationSearch(e.target.value);
+                          setShowApplicationDropdown(true);
+                          // Clear selection when user starts typing a new query
+                          setCreateForm({
+                            ...createForm,
+                            application_id: "",
+                          });
+                        }}
+                        onFocus={() => {
+                          setShowApplicationDropdown(true);
+                          // If there is a selected app, start search from empty for convenience
+                          if (createForm.application_id) {
+                            setApplicationSearch("");
+                            setCreateForm({
+                              ...createForm,
+                              application_id: "",
+                            });
+                          }
+                        }}
+                        onBlur={() => {
+                          // Delay closing to allow click selection
+                          window.setTimeout(
+                            () => setShowApplicationDropdown(false),
+                            150,
+                          );
+                        }}
+                        placeholder="Search application by name or category..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
+
+                      {showApplicationDropdown && (
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+                          {filteredApps.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-gray-500">
+                              No applications found
+                            </div>
+                          ) : (
+                            filteredApps.map((app) => (
+                              <button
+                                key={app.id}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setCreateForm({
+                                    ...createForm,
+                                    application_id: app.id,
+                                  });
+                                  setApplicationSearch(
+                                    `${app.name} - ${app.category}`,
+                                  );
+                                  setShowApplicationDropdown(false);
+                                }}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+                              >
+                                <div className="font-medium text-gray-900">
+                                  {app.name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {app.category}
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               {canCreateForOthers && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -499,30 +762,6 @@ export const AccessRequestsPage: React.FC = () => {
                   </select>
                 </div>
               )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Application *
-                </label>
-                <select
-                  value={createForm.application_id}
-                  onChange={(e) =>
-                    setCreateForm({
-                      ...createForm,
-                      application_id: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select application</option>
-                  {applications.map((app) => (
-                    <option key={app.id} value={app.id}>
-                      {app.name} - {app.category}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
