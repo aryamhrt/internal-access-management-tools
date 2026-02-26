@@ -87,4 +87,5 @@ export const ENV = {
 export const STORAGE_KEYS = {
   AUTH_TOKEN: "auth_token",
   USER_DATA: "user_data",
+  AUTH_EXPIRES_AT: "auth_expires_at",
 } as const;

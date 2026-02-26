@@ -20,20 +20,47 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authExpiresAt, setAuthExpiresAt] = useState<number | null>(null);
+
+  const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
 
   // Initialize auth state from localStorage
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
       const savedUser = localStorage.getItem(STORAGE_KEYS.USER_DATA);
+      const expiresAtRaw = localStorage.getItem(STORAGE_KEYS.AUTH_EXPIRES_AT);
+
+      const parsedExpiresAt = expiresAtRaw ? Number(expiresAtRaw) : NaN;
+      const hasValidExpiresAt = Number.isFinite(parsedExpiresAt);
 
       if (token && savedUser) {
         try {
+          // Enforce session TTL
+          if (hasValidExpiresAt && Date.now() > parsedExpiresAt) {
+            logout();
+            setIsLoading(false);
+            return;
+          }
+
           const restoredUser = JSON.parse(savedUser);
           if (typeof restoredUser?.can_manage_users !== "boolean") {
             restoredUser.can_manage_users = false;
           }
           setUser(restoredUser);
+
+          // Migration: if older sessions don't have expiry yet, start TTL from now
+          const nextExpiresAt = hasValidExpiresAt
+            ? parsedExpiresAt
+            : Date.now() + SESSION_TTL_MS;
+          if (!hasValidExpiresAt) {
+            localStorage.setItem(
+              STORAGE_KEYS.AUTH_EXPIRES_AT,
+              String(nextExpiresAt),
+            );
+          }
+          setAuthExpiresAt(nextExpiresAt);
+
           // For now, just trust the stored token (can add verification later)
           // TODO: Add token verification endpoint later
         } catch (error) {
@@ -46,6 +73,42 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     initializeAuth();
+  }, []);
+
+  // Auto-logout when session expires (even if tab stays open)
+  useEffect(() => {
+    if (!user || !authExpiresAt) return;
+
+    const msUntilExpiry = authExpiresAt - Date.now();
+    if (msUntilExpiry <= 0) {
+      logout();
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      logout();
+    }, msUntilExpiry);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [user, authExpiresAt]);
+
+  // Re-check expiry when tab becomes active
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      const expiresAtRaw = localStorage.getItem(STORAGE_KEYS.AUTH_EXPIRES_AT);
+      const parsed = expiresAtRaw ? Number(expiresAtRaw) : NaN;
+      if (Number.isFinite(parsed) && Date.now() > parsed) {
+        logout();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   const login = async (_email: string, _password: string): Promise<void> => {
@@ -84,12 +147,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         // Store auth data
+        const expiresAt = Date.now() + SESSION_TTL_MS;
         localStorage.setItem(
           STORAGE_KEYS.AUTH_TOKEN,
           response.data.token || credential,
         );
         localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
+        localStorage.setItem(STORAGE_KEYS.AUTH_EXPIRES_AT, String(expiresAt));
         setUser(userData);
+        setAuthExpiresAt(expiresAt);
       } else {
         console.error("❌ Login failed, response:", response);
         throw new Error(response.error?.message || "Authentication failed");
@@ -104,9 +170,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Clear storage
     localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.USER_DATA);
+    localStorage.removeItem(STORAGE_KEYS.AUTH_EXPIRES_AT);
 
     // Reset state
     setUser(null);
+    setAuthExpiresAt(null);
   };
 
   const value: AuthContextType = {

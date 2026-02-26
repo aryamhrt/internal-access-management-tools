@@ -14,6 +14,8 @@ export const AccessRegistryPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<
     "all" | "active" | "revoked"
   >("all");
@@ -26,18 +28,29 @@ export const AccessRegistryPage: React.FC = () => {
   // Employee search (name/email)
   const [employeeSearch, setEmployeeSearch] = useState("");
 
+  const [hasApplied, setHasApplied] = useState(false);
+  const [currentCursor, setCurrentCursor] = useState<string | null>(null);
+  const [cursorStack, setCursorStack] = useState<Array<string | null>>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const PAGE_SIZE = 20;
+
   useEffect(() => {
+    if (!user) return;
     loadInitialData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
     try {
-      // Load applications and users (cached)
+      setFetchError("");
       await loadApplications();
-      await loadUsers();
-      // Load registry
-      await loadRegistry();
+
+      // Employee: auto-load their own data
+      if (user?.role === "employee") {
+        await applyFilters(true);
+      }
     } catch (error) {
       console.error("Failed to load initial data:", error);
     } finally {
@@ -72,25 +85,127 @@ export const AccessRegistryPage: React.FC = () => {
     }
   };
 
-  const loadRegistry = async () => {
+  const resolveEmployeeIdsForSearch = async (
+    query: string,
+  ): Promise<{ ids: string[]; error?: string }> => {
+    const q = query.trim().toLowerCase();
+    if (!q) return { ids: [] };
+
+    if (users.length === 0) {
+      await loadUsers();
+    }
+
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const matches = users.filter((u) => {
+      const haystack = `${u.name || ""} ${u.email || ""}`.toLowerCase();
+      return tokens.every((t) => haystack.includes(t));
+    });
+
+    const MAX_IDS = 25;
+    if (matches.length > MAX_IDS) {
+      return {
+        ids: [],
+        error: `Too many employee matches (${matches.length}). Please refine your search.`,
+      };
+    }
+
+    return { ids: matches.map((m) => m.id) };
+  };
+
+  const fetchRegistryPage = async (opts: {
+    startCursor: string | null;
+    reset?: boolean;
+  }) => {
+    if (!user) return;
+
+    setIsFetching(true);
+    setFetchError("");
+
     try {
-      const filters: any = {};
+      const filters: any = {
+        page_size: PAGE_SIZE,
+      };
+
+      if (opts.startCursor) {
+        filters.start_cursor = opts.startCursor;
+      }
+
       if (filterStatus !== "all") {
         filters.status = filterStatus;
       }
-
-      // Employees should only see their own access registry entries
-      if (user?.role === "employee" && user.id) {
-        filters.employee_id = user.id;
+      if (filterApplication !== "all") {
+        filters.application_id = filterApplication;
       }
 
-      const response = await api.accessRegistry.getAll(filters);
-      if (response.success && response.data) {
-        setRegistry(response.data);
+      if (user.role === "employee") {
+        filters.employee_id = user.id;
+      } else {
+        const q = employeeSearch.trim();
+        if (q) {
+          const resolved = await resolveEmployeeIdsForSearch(q);
+          if (resolved.error) {
+            setFetchError(resolved.error);
+            setRegistry([]);
+            setNextCursor(null);
+            setHasMore(false);
+            return;
+          }
+          if (resolved.ids.length > 0) {
+            filters.employee_ids = resolved.ids;
+          } else {
+            setRegistry([]);
+            setNextCursor(null);
+            setHasMore(false);
+            return;
+          }
+        }
+      }
+
+      const response = await api.accessRegistry.list(filters);
+      if (!response.success || !response.data) {
+        setFetchError(response.error?.message || "Failed to load registry");
+        return;
+      }
+
+      setRegistry(response.data.results || []);
+      setNextCursor(response.data.next_cursor || null);
+      setHasMore(Boolean(response.data.has_more));
+      setHasApplied(true);
+
+      if (opts.reset) {
+        setCursorStack([]);
       }
     } catch (error) {
       console.error("Failed to load registry:", error);
+      setFetchError("Failed to load registry");
+    } finally {
+      setIsFetching(false);
     }
+  };
+
+  const applyFilters = async (isAuto = false) => {
+    if (!isAuto && user?.role !== "employee") {
+      setHasApplied(true);
+    }
+
+    setCurrentCursor(null);
+    setCursorStack([]);
+    await fetchRegistryPage({ startCursor: null, reset: true });
+  };
+
+  const goNext = async () => {
+    if (!hasMore || !nextCursor) return;
+    setCursorStack((prev) => [...prev, currentCursor]);
+    setCurrentCursor(nextCursor);
+    await fetchRegistryPage({ startCursor: nextCursor });
+  };
+
+  const goPrev = async () => {
+    if (cursorStack.length === 0) return;
+    const prevCursor = cursorStack[cursorStack.length - 1];
+    setCursorStack((prev) => prev.slice(0, -1));
+    setCurrentCursor(prevCursor);
+    await fetchRegistryPage({ startCursor: prevCursor });
   };
 
   const handleRevokeAccess = async (registryId: string) => {
@@ -104,7 +219,7 @@ export const AccessRegistryPage: React.FC = () => {
     try {
       const response = await api.accessRegistry.revoke(registryId, user?.id);
       if (response.success) {
-        loadRegistry();
+        await fetchRegistryPage({ startCursor: currentCursor });
       } else {
         alert("Failed to revoke access");
       }
@@ -120,8 +235,9 @@ export const AccessRegistryPage: React.FC = () => {
   };
 
   const getUserName = (userId: string) => {
-    const user = users.find((u) => u.id === userId);
-    return user?.name || `User ${userId}`;
+    if (user?.role === "employee" && userId === user.id) return "You";
+    const matchedUser = users.find((u) => u.id === userId);
+    return matchedUser?.name || `User ${userId}`;
   };
 
   const userById = useMemo(() => {
@@ -334,11 +450,37 @@ export const AccessRegistryPage: React.FC = () => {
             />
           </div>
         )}
+
+        {user?.role !== "employee" && (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              disabled={isFetching}
+              onClick={() => applyFilters(false)}
+            >
+              {isFetching ? "Loading..." : "Apply filters"}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Registry Table */}
       <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-        {filteredRegistry.length === 0 ? (
+        {!hasApplied && user?.role !== "employee" ? (
+          <div className="text-center py-12">
+            <p className="text-gray-700 font-medium">No data loaded yet</p>
+            <p className="text-gray-500 mt-1">
+              Set your filters and click{" "}
+              <span className="font-medium">Apply filters</span>.
+            </p>
+          </div>
+        ) : fetchError ? (
+          <div className="text-center py-12">
+            <p className="text-red-600">{fetchError}</p>
+          </div>
+        ) : filteredRegistry.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500">
               {filterStatus === "all"
@@ -444,10 +586,35 @@ export const AccessRegistryPage: React.FC = () => {
 
         {/* Table Footer with Count */}
         <div className="bg-gray-50 px-6 py-3 border-t border-gray-200">
-          <div className="text-sm text-gray-700">
-            Showing {filteredRegistry.length}{" "}
-            {filterStatus === "all" ? "" : filterStatus + " "}access record
-            {filteredRegistry.length !== 1 ? "s" : ""}
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm text-gray-700">
+              Showing {filteredRegistry.length}{" "}
+              {filterStatus === "all" ? "" : filterStatus + " "}access record
+              {filteredRegistry.length !== 1 ? "s" : ""}
+            </div>
+
+            {(hasApplied || user?.role === "employee") && (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={isFetching || cursorStack.length === 0}
+                  onClick={goPrev}
+                >
+                  Prev
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={isFetching || !hasMore || !nextCursor}
+                  onClick={goNext}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>

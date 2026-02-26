@@ -10,14 +10,16 @@ import type {
 } from "@/types";
 
 class NotionAPI {
-  async queryDatabase(databaseId: string, filter?: any): Promise<any> {
+  async queryDatabase(databaseId: string, payload?: any): Promise<any> {
     const url = `/api/notion/databases/${databaseId}/query`;
     console.log(`🌐 Vercel API Request: POST ${url}`);
 
     // Notion API expects filter/sort payload only.
     // databaseId is already in the URL path and must NOT be included in the body.
     const body =
-      filter && Object.keys(filter).length > 0 ? JSON.stringify(filter) : "{}";
+      payload && Object.keys(payload).length > 0
+        ? JSON.stringify(payload)
+        : "{}";
 
     const response = await fetch(url, {
       method: "POST",
@@ -902,6 +904,92 @@ export const notionBackend = {
           error: { code: "NOTION_ERROR", message: error.message },
           timestamp: new Date().toISOString(),
           request_id: `registry_error_${Date.now()}`,
+        };
+      }
+    },
+
+    list: async (filters?: {
+      employee_id?: string;
+      employee_ids?: string[];
+      application_id?: string;
+      status?: string;
+      page_size?: number;
+      start_cursor?: string;
+    }): Promise<
+      ApiResponse<{
+        results: AccessRegistry[];
+        next_cursor: string | null;
+        has_more: boolean;
+      }>
+    > => {
+      try {
+        const filterConditions: any[] = [];
+
+        if (filters?.status) {
+          filterConditions.push({
+            property: "Status",
+            select: { equals: filters.status },
+          });
+        }
+
+        if (filters?.employee_id) {
+          filterConditions.push({
+            property: "Employee ID",
+            rich_text: { equals: filters.employee_id },
+          });
+        }
+
+        if (filters?.application_id) {
+          filterConditions.push({
+            property: "Application ID",
+            rich_text: { equals: filters.application_id },
+          });
+        }
+
+        const employeeIds = (filters?.employee_ids || []).filter(Boolean);
+        if (employeeIds.length > 0) {
+          filterConditions.push({
+            or: employeeIds.map((id) => ({
+              property: "Employee ID",
+              rich_text: { equals: id },
+            })),
+          });
+        }
+
+        const payload: any = {
+          page_size: filters?.page_size || 20,
+          sorts: [{ property: "Granted Date", direction: "descending" }],
+        };
+
+        if (filters?.start_cursor) {
+          payload.start_cursor = filters.start_cursor;
+        }
+
+        if (filterConditions.length > 0) {
+          payload.filter = { and: filterConditions };
+        }
+
+        const response = await notion.queryDatabase(
+          ENV.NOTION_DATABASES.ACCESS_REGISTRY,
+          payload,
+        );
+
+        return {
+          success: true,
+          data: {
+            results: (response.results || []).map(notionToAccessRegistry),
+            next_cursor: response.next_cursor || null,
+            has_more: Boolean(response.has_more),
+          },
+          timestamp: new Date().toISOString(),
+          request_id: `registry_list_${Date.now()}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: { code: "NOTION_ERROR", message: error.message },
+          timestamp: new Date().toISOString(),
+          request_id: `registry_list_error_${Date.now()}`,
         };
       }
     },

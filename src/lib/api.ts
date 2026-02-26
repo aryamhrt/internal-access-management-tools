@@ -260,6 +260,32 @@ const api =
             return makeAppsScriptRequest(endpoint);
           },
 
+          list: async (_filters?: {
+            employee_id?: string;
+            employee_ids?: string[];
+            application_id?: string;
+            status?: string;
+            page_size?: number;
+            start_cursor?: string;
+          }): Promise<
+            ApiResponse<{
+              results: AccessRegistry[];
+              next_cursor: string | null;
+              has_more: boolean;
+            }>
+          > => {
+            return {
+              success: false,
+              error: {
+                code: "NOT_IMPLEMENTED",
+                message:
+                  "Paginated access registry listing is not implemented for the Apps Script backend.",
+              },
+              timestamp: new Date().toISOString(),
+              request_id: `access_registry_list_${Date.now()}`,
+            };
+          },
+
           create: async (data: {
             employee_id: string;
             application_id: string;
